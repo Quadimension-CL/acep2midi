@@ -1,0 +1,37 @@
+name: tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        python-version: ["3.9", "3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Run self-test
+        run: python acep2midi.py --selftest
+
+      - name: Inspect bundled sample
+        run: python acep2midi.py samples/demo-realistic.acep --inspect
+
+      - name: Convert bundled samples
+        run: |
+          python acep2midi.py samples/demo.acep -o out-demo.mid
+          python acep2midi.py samples/demo-realistic.acep -o out-realistic.mid
+
+      - name: Verify MIDI header
+        run: python -c "import pathlib,sys; [sys.exit('bad header: '+p.name) for p in map(pathlib.Path, ['out-demo.mid','out-realistic.mid']) if p.read_bytes()[:4] != b'MThd']; print('MIDI headers OK')"

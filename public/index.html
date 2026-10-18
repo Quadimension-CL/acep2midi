@@ -1,0 +1,475 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ACEP → MIDI</title>
+<style>
+  :root {
+    color-scheme: dark;
+    --bg: #08090c;
+    --panel: rgba(255,255,255,0.045);
+    --line: rgba(255,255,255,0.09);
+    --text: #e8eaf0;
+    --muted: #8b91a3;
+    --accent: #22d3ee;
+    --accent-2: #6366f1;
+    --ok: #34d399;
+    --err: #fb7185;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font: 15px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+          "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+    display: grid;
+    place-items: center;
+    padding: 32px 20px;
+    overflow-x: hidden;
+  }
+  /* 背景光晕 */
+  body::before, body::after {
+    content: "";
+    position: fixed;
+    width: 46vmax; height: 46vmax;
+    border-radius: 50%;
+    filter: blur(110px);
+    opacity: .28;
+    pointer-events: none;
+    z-index: 0;
+  }
+  body::before { background: #4338ca; top: -16vmax; left: -10vmax; }
+  body::after  { background: #0e7490; bottom: -20vmax; right: -12vmax; }
+
+  .card {
+    position: relative;
+    z-index: 1;
+    width: min(720px, 100%);
+    background: rgba(16,18,24,0.72);
+    border: 1px solid var(--line);
+    border-radius: 22px;
+    padding: 34px 32px 26px;
+    backdrop-filter: blur(22px);
+    -webkit-backdrop-filter: blur(22px);
+    box-shadow: 0 28px 70px rgba(0,0,0,.6);
+  }
+  .card::before {
+    content: "";
+    position: absolute; inset: 0 0 auto 0; height: 1px;
+    background: linear-gradient(90deg, transparent, rgba(34,211,238,.7), transparent);
+  }
+
+  header { text-align: center; margin-bottom: 26px; }
+  .badge {
+    display: inline-flex; align-items: center; gap: 7px;
+    font-size: 11px; letter-spacing: .14em; text-transform: uppercase;
+    color: var(--accent); background: rgba(34,211,238,.09);
+    border: 1px solid rgba(34,211,238,.24);
+    padding: 5px 12px; border-radius: 999px; margin-bottom: 16px;
+  }
+  .badge::before {
+    content: ""; width: 6px; height: 6px; border-radius: 50%;
+    background: var(--accent); box-shadow: 0 0 10px var(--accent);
+  }
+  h1 {
+    margin: 0 0 8px; font-size: 27px; font-weight: 800;
+    letter-spacing: .02em;
+    background: linear-gradient(100deg, #fff 20%, #a5f3fc 60%, #c7d2fe);
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+  }
+  .sub { margin: 0; color: var(--muted); font-size: 13px; }
+
+  .drop {
+    display: block; width: 100%; text-align: center; cursor: pointer;
+    border: 1.5px dashed rgba(34,211,238,.32);
+    border-radius: 16px; padding: 30px 20px;
+    background: rgba(0,0,0,.28);
+    transition: border-color .18s, background .18s, transform .18s;
+  }
+  .drop:hover, .drop.over {
+    border-color: rgba(34,211,238,.75);
+    background: rgba(34,211,238,.07);
+    transform: translateY(-1px);
+  }
+  .drop .icon { font-size: 30px; display: block; margin-bottom: 10px; }
+  .drop .main { font-weight: 700; font-size: 14px; letter-spacing: .04em; }
+  .drop .hint { display: block; margin-top: 6px; color: var(--muted); font-size: 12px; }
+  input[type=file] { display: none; }
+
+  .opts { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 16px; }
+  .field { display: flex; flex-direction: column; gap: 6px; }
+  .field span { font-size: 11px; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); }
+  .field input {
+    width: 100%; padding: 10px 12px; border-radius: 10px;
+    border: 1px solid var(--line); background: rgba(0,0,0,.35);
+    color: var(--text); font: inherit; font-size: 13px; outline: none;
+    transition: border-color .15s;
+  }
+  .field input:focus { border-color: rgba(34,211,238,.6); }
+
+  .actions { display: grid; gap: 10px; margin-top: 20px; }
+  button {
+    font: inherit; font-weight: 700; letter-spacing: .06em;
+    border: 0; border-radius: 12px; padding: 14px 18px; cursor: pointer;
+    transition: transform .15s, filter .15s, opacity .15s;
+  }
+  button:active { transform: scale(.985); }
+  .primary {
+    color: #04141a;
+    background: linear-gradient(95deg, var(--accent), #38bdf8 45%, var(--accent-2));
+    box-shadow: 0 12px 30px rgba(34,211,238,.22);
+  }
+  .primary:hover:not(:disabled) { filter: brightness(1.08); }
+  button:disabled { opacity: .45; cursor: not-allowed; filter: grayscale(.5); }
+
+  .status { min-height: 22px; margin-top: 16px; font-size: 12.5px; font-weight: 600; text-align: center; }
+  .status.ok { color: var(--ok); }
+  .status.err { color: var(--err); }
+  .status.info { color: #a5f3fc; }
+
+  .progress { display: none; margin-top: 10px; }
+  .progress.show { display: block; }
+  .bar { height: 5px; border-radius: 999px; background: rgba(255,255,255,.09); overflow: hidden; }
+  .bar > i {
+    display: block; height: 100%; width: 0%;
+    background: linear-gradient(90deg, var(--accent), var(--accent-2));
+    transition: width .25s ease;
+  }
+
+  .result {
+    display: none; margin-top: 20px; padding: 16px;
+    border: 1px solid rgba(52,211,153,.28);
+    background: rgba(52,211,153,.06);
+    border-radius: 14px;
+  }
+  .result.show { display: block; animation: rise .3s ease; }
+  @keyframes rise { from { opacity: 0; transform: translateY(8px); } }
+  .result h2 { margin: 0 0 10px; font-size: 13px; color: var(--ok); letter-spacing: .06em; }
+  .stats { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+  .stat {
+    font-size: 12px; padding: 5px 10px; border-radius: 8px;
+    background: rgba(255,255,255,.05); border: 1px solid var(--line); color: #cbd5e1;
+  }
+  .stat b { color: #fff; font-weight: 700; }
+  .tracks { max-height: 170px; overflow: auto; margin: 0 0 12px; padding: 0; list-style: none; }
+  .tracks li {
+    display: flex; justify-content: space-between; gap: 12px;
+    font-size: 12.5px; padding: 7px 2px; border-bottom: 1px solid rgba(255,255,255,.05);
+  }
+  .tracks li:last-child { border-bottom: 0; }
+  .tracks .n { color: var(--muted); font-variant-numeric: tabular-nums; }
+  .download {
+    display: block; text-align: center; text-decoration: none;
+    color: #04141a; background: linear-gradient(95deg, var(--ok), #22d3ee);
+    padding: 12px; border-radius: 10px; font-weight: 800; font-size: 13px;
+    letter-spacing: .06em;
+  }
+
+  footer {
+    margin-top: 22px; padding-top: 14px; border-top: 1px solid rgba(255,255,255,.06);
+    display: flex; justify-content: space-between; gap: 12px;
+    font-size: 11px; color: #5c6273; letter-spacing: .04em;
+  }
+  footer a { color: #7c8496; text-decoration: none; }
+  footer a:hover { color: var(--accent); }
+  @media (max-width: 520px) {
+    .card { padding: 26px 20px 20px; }
+    h1 { font-size: 22px; }
+    .opts { grid-template-columns: 1fr; }
+    footer { flex-direction: column; align-items: center; gap: 6px; }
+  }
+</style>
+</head>
+<body>
+<main class="card">
+  <header>
+    <div class="badge">Offline · No Auth</div>
+    <h1>ACEP → MIDI</h1>
+    <p class="sub" data-i18n="subtitle">Upload an ACE Studio project file and convert it to standard MIDI locally</p>
+  </header>
+
+  <label class="drop" id="drop" for="file">
+    <span class="icon">🎹</span>
+    <span class="main" data-i18n="dropMain">Click to choose a .acep file, or drop one here</span>
+    <span class="hint" id="fileName" data-i18n="noFile">No file selected</span>
+  </label>
+  <input id="file" type="file" accept=".acep,.zip,application/zip">
+
+  <div class="opts">
+    <label class="field">
+      <span data-i18n="bpmLabel">BPM override (optional)</span>
+      <input id="bpm" type="number" min="20" max="400" step="0.5" placeholder="Use the project BPM" data-i18n-placeholder="bpmPlaceholder">
+    </label>
+    <label class="field">
+      <span data-i18n="nameLabel">Output filename (optional)</span>
+      <input id="outName" type="text" placeholder="Same name as the source file" data-i18n-placeholder="namePlaceholder">
+    </label>
+  </div>
+
+  <div class="actions">
+    <button class="primary" id="convert" disabled data-i18n="convert">Convert</button>
+  </div>
+
+  <p class="status" id="status"></p>
+  <div class="progress" id="progressWrap">
+    <div class="bar"><i id="progressBar"></i></div>
+  </div>
+
+  <section class="result" id="result">
+    <h2 data-i18n="done">Conversion complete</h2>
+    <div class="stats" id="stats"></div>
+    <ul class="tracks" id="tracks"></ul>
+    <a class="download" id="download" href="#" download data-i18n="download">Download MIDI</a>
+  </section>
+
+  <footer>
+    <span data-i18n="privacy">Processed locally · your file never leaves this computer</span>
+    <a href="/api/health" target="_blank" rel="noopener" data-i18n="status">Service status</a>
+  </footer>
+</main>
+
+<script>
+(function () {
+  const I18N = {
+    en: {
+      subtitle: 'Upload an ACE Studio project file and convert it to standard MIDI locally',
+      dropMain: 'Click to choose a .acep file, or drop one here',
+      noFile: 'No file selected',
+      bpmLabel: 'BPM override (optional)',
+      bpmPlaceholder: 'Use the project BPM',
+      nameLabel: 'Output filename (optional)',
+      namePlaceholder: 'Same name as the source file',
+      convert: 'Convert',
+      converting: 'Converting…',
+      done: 'Conversion complete',
+      download: 'Download MIDI',
+      privacy: 'Processed locally · your file never leaves this computer',
+      status: 'Service status',
+      pickAcep: 'Please choose a .acep file',
+      ready: 'Ready — click Convert to start',
+      uploading: 'Uploading and parsing…',
+      failed: 'Conversion failed',
+      success: 'Conversion successful',
+      tracks: 'Tracks', notes: 'Notes', duration: 'Duration',
+      size: 'Size', seconds: 's', notesSuffix: ' notes'
+    },
+    zh: {
+      subtitle: '上传 ACE Studio 工程文件，在本地解析并生成标准 MIDI',
+      dropMain: '点击选择或拖入 .acep 文件',
+      noFile: '尚未选择文件',
+      bpmLabel: 'BPM 覆盖（可留空）',
+      bpmPlaceholder: '沿用工程内 BPM',
+      nameLabel: '文件名（可留空）',
+      namePlaceholder: '与源文件同名',
+      convert: '开始转换',
+      converting: '转换中…',
+      done: '转换完成',
+      download: '下载 MIDI',
+      privacy: '本地处理 · 文件不会离开这台电脑',
+      status: '服务状态',
+      pickAcep: '请选择 .acep 文件',
+      ready: '准备就绪，点击开始转换',
+      uploading: '正在上传并解析…',
+      failed: '转换失败',
+      success: '转换成功',
+      tracks: '轨道', notes: '音符', duration: '时长',
+      size: '大小', seconds: ' 秒', notesSuffix: ' 音符'
+    }
+  };
+
+  function detectLang() {
+    const forced = new URLSearchParams(location.search).get('lang');
+    if (forced && I18N[forced]) return forced;
+    const nav = (navigator.language || 'en').toLowerCase();
+    return nav.startsWith('zh') ? 'zh' : 'en';
+  }
+
+  const LANG = detectLang();
+  const STR = I18N[LANG] || I18N.en;
+  const T = key => STR[key] || I18N.en[key] || key;
+
+  function applyI18n() {
+    document.documentElement.lang = LANG === 'zh' ? 'zh-CN' : 'en';
+    document.querySelectorAll('[data-i18n]').forEach(el => {
+      el.textContent = T(el.getAttribute('data-i18n'));
+    });
+    document.querySelectorAll('[data-i18n-placeholder]').forEach(el => {
+      el.placeholder = T(el.getAttribute('data-i18n-placeholder'));
+    });
+  }
+
+  const drop = document.getElementById('drop');
+  const input = document.getElementById('file');
+  const fileName = document.getElementById('fileName');
+  const convertBtn = document.getElementById('convert');
+  const statusEl = document.getElementById('status');
+  const progressWrap = document.getElementById('progressWrap');
+  const progressBar = document.getElementById('progressBar');
+  const resultEl = document.getElementById('result');
+  const statsEl = document.getElementById('stats');
+  const tracksEl = document.getElementById('tracks');
+  const downloadEl = document.getElementById('download');
+  const bpmInput = document.getElementById('bpm');
+  const outNameInput = document.getElementById('outName');
+
+  applyI18n();
+
+  let picked = null;
+  let objectUrl = null;
+
+  function setStatus(text, kind) {
+    statusEl.textContent = text || '';
+    statusEl.className = 'status' + (kind ? ' ' + kind : '');
+  }
+
+  function setProgress(pct) {
+    if (pct == null) { progressWrap.classList.remove('show'); return; }
+    progressWrap.classList.add('show');
+    progressBar.style.width = Math.max(0, Math.min(100, pct)) + '%';
+  }
+
+  function resetResult() {
+    resultEl.classList.remove('show');
+    if (objectUrl) { URL.revokeObjectURL(objectUrl); objectUrl = null; }
+  }
+
+  function pickFile(file) {
+    if (!file) return;
+    if (!/\.(acep|zip)$/i.test(file.name)) {
+      setStatus(T('pickAcep'), 'err');
+      return;
+    }
+    picked = file;
+    fileName.textContent = file.name + ' · ' + formatSize(file.size);
+    convertBtn.disabled = false;
+    resetResult();
+    setStatus(T('ready'), 'info');
+    setProgress(null);
+    if (!outNameInput.value.trim()) {
+      outNameInput.placeholder = file.name.replace(/\.[^.]+$/, '') + '.mid';
+    }
+  }
+
+  function formatSize(bytes) {
+    if (bytes < 1024) return bytes + ' B';
+    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+    return (bytes / 1024 / 1024).toFixed(1) + ' MB';
+  }
+
+  input.addEventListener('change', () => pickFile(input.files && input.files[0]));
+
+  ['dragenter', 'dragover'].forEach(evt =>
+    drop.addEventListener(evt, e => { e.preventDefault(); drop.classList.add('over'); }));
+  ['dragleave', 'drop'].forEach(evt =>
+    drop.addEventListener(evt, e => { e.preventDefault(); drop.classList.remove('over'); }));
+  drop.addEventListener('drop', e => {
+    const file = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+    if (file) pickFile(file);
+  });
+
+  convertBtn.addEventListener('click', async () => {
+    if (!picked) return;
+    resetResult();
+    convertBtn.disabled = true;
+    convertBtn.textContent = T('converting');
+    setStatus(T('uploading'), 'info');
+    setProgress(15);
+
+    const form = new FormData();
+    form.append('file', picked);
+    const bpm = parseFloat(bpmInput.value);
+    if (Number.isFinite(bpm) && bpm > 0) form.append('bpm', String(bpm));
+    const outName = outNameInput.value.trim();
+    if (outName) form.append('filename', outName);
+
+    try {
+      const response = await fetch('/api/convert', { method: 'POST', body: form });
+      setProgress(70);
+
+      if (!response.ok) {
+        let message = T('failed');
+        try {
+          const data = await response.json();
+          message = data.message || message;
+        } catch (_) { /* 非 JSON 响应 */ }
+        throw new Error(message);
+      }
+
+      const blob = await response.blob();
+      setProgress(100);
+      showResult(blob, response);
+      setStatus(T('success'), 'ok');
+    } catch (err) {
+      setStatus(err.message || T('failed'), 'err');
+      setProgress(null);
+    } finally {
+      convertBtn.disabled = !picked;
+      convertBtn.textContent = T('convert');
+    }
+  });
+
+  function header(response, name) { return response.headers.get(name) || ''; }
+
+  function showResult(blob, response) {
+    const notes = header(response, 'X-MIDI-Notes');
+    const tracks = header(response, 'X-MIDI-Tracks');
+    const bpm = header(response, 'X-MIDI-BPM');
+    const ppq = header(response, 'X-MIDI-PPQ');
+    const seconds = header(response, 'X-MIDI-Duration');
+    const trackNames = (header(response, 'X-MIDI-Track-Names') || '')
+      .split('|').filter(Boolean).map(function (name) {
+        try { return decodeURIComponent(name); } catch (_) { return name; }
+      });
+    const counts = (header(response, 'X-MIDI-Track-Notes') || '')
+      .split('|').filter(Boolean);
+
+    statsEl.replaceChildren();
+    const stats = [
+      ['tracks', tracks], ['notes', notes],
+      ['BPM', bpm], ['PPQ', ppq],
+      ['duration', seconds ? seconds + T('seconds') : null],
+      ['size', formatSize(blob.size)],
+    ];
+    for (const [key, value] of stats) {
+      if (value == null || value === '') continue;
+      const el = document.createElement('span');
+      el.className = 'stat';
+      el.innerHTML = '<span class="k"></span> <b></b>';
+      el.querySelector('.k').textContent = T(key) === key ? key : T(key);
+      el.querySelector('b').textContent = value;
+      statsEl.appendChild(el);
+    }
+
+    tracksEl.replaceChildren();
+    trackNames.forEach((name, i) => {
+      const li = document.createElement('li');
+      const left = document.createElement('span');
+      left.textContent = (i + 1) + '. ' + name;
+      const right = document.createElement('span');
+      right.className = 'n';
+      right.textContent = (counts[i] || '?') + T('notesSuffix');
+      li.append(left, right);
+      tracksEl.appendChild(li);
+    });
+    tracksEl.style.display = trackNames.length ? '' : 'none';
+
+    const disposition = header(response, 'Content-Disposition') || '';
+    let filename = 'output.mid';
+    const star = /filename\*=UTF-8''([^;]+)/i.exec(disposition);
+    const plain = /filename="?([^";]+)"?/i.exec(disposition);
+    if (star) { try { filename = decodeURIComponent(star[1]); } catch (_) {} }
+    else if (plain) filename = plain[1];
+
+    objectUrl = URL.createObjectURL(blob);
+    downloadEl.href = objectUrl;
+    downloadEl.download = filename;
+    downloadEl.textContent = T('download') + ' · ' + filename;
+    resultEl.classList.add('show');
+  }
+})();
+</script>
+</body>
+</html>
