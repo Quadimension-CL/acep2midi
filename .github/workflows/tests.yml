@@ -34,4 +34,13 @@ jobs:
           python acep2midi.py samples/demo-realistic.acep -o out-realistic.mid
 
       - name: Verify MIDI header
-        run: python -c "import pathlib,sys; [sys.exit('bad header: '+p.name) for p in map(pathlib.Path, ['out-demo.mid','out-realistic.mid']) if p.read_bytes()[:4] != b'MThd']; print('MIDI headers OK')"
+        run: |
+          python - <<'PY'
+          import pathlib
+          import sys
+
+          for name in ("out-demo.mid", "out-realistic.mid"):
+              if pathlib.Path(name).read_bytes()[:4] != b"MThd":
+                  sys.exit("bad MIDI header: " + name)
+          print("MIDI headers OK")
+          PY
