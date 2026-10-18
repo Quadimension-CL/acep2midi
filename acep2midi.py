@@ -993,7 +993,27 @@ def _inspect(path: Path) -> int:
     return 0
 
 
+def _ensure_utf8_stdout() -> None:
+    """
+    Windows 控制台默认可能是 cp1252 / cp936，直接打印中文轨道名会抛 UnicodeEncodeError。
+    这里把 stdout/stderr 切成 UTF-8，并让无法编码的字符降级而不是崩溃。
+    """
+    for stream_name in ("stdout", "stderr"):
+        stream = getattr(sys, stream_name, None)
+        if stream is None:
+            continue
+        try:
+            if (stream.encoding or "").lower() not in ("utf-8", "utf8"):
+                stream.reconfigure(encoding="utf-8", errors="replace")
+            elif stream.errors != "replace":
+                stream.reconfigure(errors="replace")
+        except (AttributeError, ValueError, OSError):
+            # 被重定向到不支持 reconfigure 的对象时忽略，退化为 errors 处理
+            pass
+
+
 def main(argv=None) -> int:
+    _ensure_utf8_stdout()
     parser = argparse.ArgumentParser(
         prog="acep2midi",
         description="Convert ACE Studio .acep project files to standard MIDI "
